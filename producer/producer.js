@@ -6,12 +6,17 @@ async function main(){
         console.log("Connected to RabbitMQ!");
         const channel = await connection.createChannel();
         console.log("Channel created");
-        const queue = await channel.assertQueue("notifications");
+        const queue = await channel.assertQueue("notifications",{
+            durable: true
+        });
         console.log("Queue created");
         const message = "Hello RabbitMQ!";
         channel.sendToQueue(
             queue.queue,
-            Buffer.from(message)
+            Buffer.from(message),
+            {
+                persistent: true
+            }
         )
     } 
     catch(error){

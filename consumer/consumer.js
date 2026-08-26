@@ -4,7 +4,9 @@ async function main() {
     try {
         const connection = await amqp.connect("amqp://localhost");
         const channel = await connection.createChannel();
-        await channel.assertQueue("notifications");
+        await channel.assertQueue("notifications",{
+            durable: true
+        });
         channel.consume("notifications",(msg)=>{
             const message = msg.content.toString();
             console.log(message);
