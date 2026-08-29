@@ -1,12 +1,9 @@
-const amqp = require("amqplib");
+const connectRabbitMQ = require("../config/rabbitmq");
+const { emailNotification, smsNotification } = require("../events/notifications");
 
 async function main(){
     try{
-        const { emailNotification, smsNotification } = require("./notifications");
-        const connection = await amqp.connect("amqp://localhost");
-        console.log("Connected to RabbitMQ!");
-        const channel = await connection.createChannel();
-        console.log("Channel created");
+        const { connection, channel } = await connectRabbitMQ();
         await channel.assertExchange("notification.exchange","topic",{
             durable: true
         })
