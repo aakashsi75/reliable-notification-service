@@ -2,19 +2,41 @@ const amqp = require("amqplib");
 
 async function main(){
     try{
+        const { emailNotification, smsNotification } = require("./notifications");
         const connection = await amqp.connect("amqp://localhost");
         console.log("Connected to RabbitMQ!");
         const channel = await connection.createChannel();
         console.log("Channel created");
-        const queue = await channel.assertQueue("notifications",{
+        await channel.assertExchange("notification.exchange","topic",{
+            durable: true
+        })
+        const queue = await channel.assertQueue("email.queue",{
             durable: true
         });
-        console.log("Queue created");
-        const message = "Hello RabbitMQ!";
-        channel.sendToQueue(
+        await channel.assertQueue("sms.queue",{
+            durable: true
+        })
+        await channel.bindQueue(
             queue.queue,
-            Buffer.from(message),
-            {
+            "notification.exchange",
+            "notification.email"
+        )
+        await channel.bindQueue(
+            "sms.queue",
+            "notification.exchange",
+            "notification.sms"
+        )
+        console.log("Queue created and bound");
+        
+        channel.publish("notification.exchange",
+            "notification.email",
+            Buffer.from(JSON.stringify(emailNotification)),{
+                persistent:true
+            }
+        )
+        channel.publish("notification.exchange",
+            "notification.sms",
+            Buffer.from(JSON.stringify(smsNotification)),{
                 persistent: true
             }
         )
