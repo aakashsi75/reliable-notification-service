@@ -9,7 +9,10 @@ async function main(){
         channel.publish("notification.exchange",
             "notification.email.security",
             Buffer.from(JSON.stringify(emailNotification)),{
-                persistent:true
+                persistent:true,
+                headers: {
+                    "x-retry-count":0
+                }
             }
         )
         channel.publish("notification.exchange",
