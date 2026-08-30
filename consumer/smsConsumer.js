@@ -10,7 +10,7 @@ async function main() {
             deadLetterRoutingKey: "notification.sms.failed"
         });
 
-        await channel.assertQueue("sms.retry.queue",{
+        await channel.assertQueue("sms.retry.queue", {
             durable: true,
             messageTtl: 5000,
             deadLetterExchange: "notification.exchange",
@@ -23,30 +23,32 @@ async function main() {
             const sms = JSON.parse(msg.content.toString());
             const retryCount = msg.properties.headers["x-retry-count"];
             console.log("SMS:", sms);
-            console.log("RETRY-COUNT:",retryCount);
+            console.log("RETRY-COUNT:", retryCount);
             const success = false;
-            if(success){
+            if (success) {
                 channel.ack(msg);
                 return;
             }
-            else{
-                if(retryCount >= 3){
-                    channel.sendToQueue(
-                        "sms.dlq",
+            else {
+                if (retryCount >= 3) {
+                    channel.publish(
+                        "notification.dlx",
+                        "notification.sms.failed",
                         msg.content,
                         {
                             persistent: true
                         }
-                    )
+                    );
+
                     channel.ack(msg);
                 }
-                else{
+                else {
                     channel.sendToQueue("sms.retry.queue",
                         msg.content,
                         {
                             persistent: true,
                             headers: {
-                                "x-retry-count":retryCount+1
+                                "x-retry-count": retryCount + 1
                             }
                         }
                     )
