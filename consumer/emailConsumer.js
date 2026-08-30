@@ -6,8 +6,8 @@ async function main() {
 
         await channel.assertQueue("email.queue", {
             durable: true,
-            deadLetterExchange: "email.dlx",
-            deadLetterRoutingKey: "email.failed"
+            deadLetterExchange: "notification.dlx",
+            deadLetterRoutingKey: "notification.email.failed"
         });
         await channel.assertQueue("email.retry.queue",{
             durable: true,

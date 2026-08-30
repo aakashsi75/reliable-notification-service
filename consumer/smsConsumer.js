@@ -5,17 +5,54 @@ async function main() {
         const { channel } = await connectRabbitMQ();
 
         await channel.assertQueue("sms.queue", {
-            durable: true
+            durable: true,
+            deadLetterExchange: "notification.dlx",
+            deadLetterRoutingKey: "notification.sms.failed"
         });
+
+        await channel.assertQueue("sms.retry.queue",{
+            durable: true,
+            messageTtl: 5000,
+            deadLetterExchange: "notification.exchange",
+            deadLetterRoutingKey: "notification.sms.otp"
+        })
 
         channel.prefetch(1);
 
         channel.consume("sms.queue", (msg) => {
             const sms = JSON.parse(msg.content.toString());
-
+            const retryCount = msg.properties.headers["x-retry-count"];
             console.log("SMS:", sms);
-
-            channel.ack(msg);
+            console.log("RETRY-COUNT:",retryCount);
+            const success = false;
+            if(success){
+                channel.ack(msg);
+                return;
+            }
+            else{
+                if(retryCount >= 3){
+                    channel.sendToQueue(
+                        "sms.dlq",
+                        msg.content,
+                        {
+                            persistent: true
+                        }
+                    )
+                    channel.ack(msg);
+                }
+                else{
+                    channel.sendToQueue("sms.retry.queue",
+                        msg.content,
+                        {
+                            persistent: true,
+                            headers: {
+                                "x-retry-count":retryCount+1
+                            }
+                        }
+                    )
+                    channel.ack(msg);
+                }
+            }
         }, {
             noAck: false
         });

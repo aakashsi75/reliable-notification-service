@@ -18,7 +18,10 @@ async function main(){
         channel.publish("notification.exchange",
             "notification.sms.otp",
             Buffer.from(JSON.stringify(smsNotification)),{
-                persistent: true
+                persistent:true,
+                headers: {
+                    "x-retry-count":0
+                }
             }
         )
     } 
