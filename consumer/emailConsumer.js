@@ -1,4 +1,5 @@
 const connectRabbitMQ = require("../config/rabbitmq");
+const {updateNotification, recordAttempt, updateRetryCount} = require("../db/notificationRepository");
 
 async function main() {
     try {
@@ -17,28 +18,28 @@ async function main() {
         })
         channel.prefetch(1);
 
-        channel.consume("email.queue", (msg) => {
+        channel.consume("email.queue", async (msg) => {
             const email = JSON.parse(msg.content.toString());
+            await updateNotification(email.id,"PROCESSING");
             const retryCount = msg.properties.headers?.["x-retry-count"] || 0;
             console.log("EMAIL:", email);
             console.log("RETRY-COUNT:", retryCount);
             const success = false;
             if (success) {
+                await recordAttempt(email.id,retryCount+1,"SUCCESS");
+                await updateNotification(email.id,"SENT");
                 channel.ack(msg);
                 return;
             }
             if (retryCount >= 3) {
-                channel.publish(
-                    "notification.dlx",
-                    "notification.email.failed",
-                    msg.content,
-                    {
-                        persistent: true
-                    }
-                );
-                channel.ack(msg);
+                await recordAttempt(email.id, retryCount+1,"FAILED","Email provider failed");
+                await updateNotification(email.id,"FAILED","Email provider failed");
+                channel.reject(msg,false);
+                return;
             }
             else {
+                await recordAttempt(email.id,retryCount+1,"FAILED","Email provider failed");
+                await updateRetryCount(email.id,retryCount+1);
                 channel.sendToQueue(
                     "email.retry.queue",
                     msg.content,
@@ -51,9 +52,6 @@ async function main() {
                 )
                 channel.ack(msg);
             }
-
-            // channel.ack(msg);
-            // channel.reject(msg,false);
         }, {
             noAck: false
         });

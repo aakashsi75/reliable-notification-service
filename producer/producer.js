@@ -1,33 +1,42 @@
 const connectRabbitMQ = require("../config/rabbitmq");
-const { emailNotification, smsNotification } = require("../events/notifications");
+// const { emailNotification, smsNotification } = require("../events/notifications");
 const { setup } = require("../config/rabbitmqSetup");
 
-async function main(){
+let channel;
+let connection;
+
+async function initializePublisher(){
     try{
-        const { channel } = await connectRabbitMQ();
+        const rabbitMQ = await connectRabbitMQ();
+        connection = rabbitMQ.connection;
+        channel = rabbitMQ.channel;
         await setup(channel);
-        channel.publish("notification.exchange",
-            "notification.email.security",
-            Buffer.from(JSON.stringify(emailNotification)),{
-                persistent:true,
-                headers: {
-                    "x-retry-count":0
+        console.log("RabbitMQ publisher ready");
+    }
+    catch(error){
+        console.error("RabbitMQ publisher failed to initialize",error);
+        throw error;
+    }
+}
+async function publishNotification(notification){
+    try{
+        const routingKey = notification.type === "EMAIL" ? "notification.email.security" : "notification.sms.otp";
+        channel.publish(
+            "notification.exchange",
+            routingKey,
+            Buffer.from(JSON.stringify(notification)),
+            {
+                persistent: true,
+                headers:{
+                    "x-retry-count" : 0
                 }
             }
-        )
-        channel.publish("notification.exchange",
-            "notification.sms.otp",
-            Buffer.from(JSON.stringify(smsNotification)),{
-                persistent:true,
-                headers: {
-                    "x-retry-count":0
-                }
-            }
-        )
+        );
     } 
     catch(error){
-        console.log(error);
+        console.error("Failed to publish notification",error);
+        throw error;
     }
 }
 
-main();
+module.exports = {initializePublisher,publishNotification};
