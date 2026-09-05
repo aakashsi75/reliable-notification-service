@@ -24,3 +24,10 @@ CREATE TABLE notification_attempts (
         FOREIGN KEY (notification_id)
         REFERENCES notifications(id)
 );
+
+CREATE TABLE api_clients(
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    api_hash_key VARCHAR(64) NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+)
