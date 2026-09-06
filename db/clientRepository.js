@@ -3,7 +3,7 @@ const pool = require("../config/postgres");
 async function createClient(name, apiKeyHash) {
 
     const query = `
-        INSERT INTO api_clients (name, api_key_hash)
+        INSERT INTO api_clients (name, api_hash_key)
         VALUES ($1, $2)
         RETURNING id, name, created_at;
     `;
@@ -20,7 +20,7 @@ async function findClientByApiKeyHash(apiKeyHash) {
     const query = `
         SELECT id, name
         FROM api_clients
-        WHERE api_key_hash = $1;
+        WHERE api_hash_key = $1;
     `;
 
     const values = [apiKeyHash];

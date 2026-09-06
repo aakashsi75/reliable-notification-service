@@ -1,11 +1,13 @@
 const express = require("express");
 const {createNotification} = require("../db/notificationRepository");
 const {initializePublisher, publishNotification} = require("../producer/producer");
+const apiKeyAuth = require("../middleware/apiKeyAuth");
+const rateLimiter = require("../middleware/rateLimiter");
 const app = express();
 
 app.use(express.json());
 
-app.post("/notifications",async(req,res)=>{
+app.post("/notifications",apiKeyAuth,rateLimiter,async(req,res)=>{
     try{
         const {type,recipient,content} = req.body;
         console.log(type,recipient,content);
