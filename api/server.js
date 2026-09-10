@@ -10,8 +10,14 @@ app.use(express.json());
 app.post("/notifications",apiKeyAuth,rateLimiter,async(req,res)=>{
     try{
         const {type,recipient,content} = req.body;
+        const idempotency_key = req.headers["idempotency_key"];
+        if(!idempotency_key){
+            res.status(400).json({
+                error: "Idempotency Key Header Required"
+            })
+        }
         console.log(type,recipient,content);
-        const notification = await createNotification(type,recipient,content);
+        const notification = await createNotification(type,recipient,content,idempotency_key);
         await publishNotification(notification);
         res.status(201).json(notification);
     }

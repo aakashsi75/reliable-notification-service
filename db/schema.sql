@@ -1,5 +1,6 @@
 CREATE TABLE notifications(
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    idempotency_key TEXT NOT NULL UNIQUE,
     type VARCHAR(10) NOT NULL
         CHECK(type in ('SMS','EMAIL')),
     recipient VARCHAR(255) NOT NULL,

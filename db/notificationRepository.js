@@ -1,12 +1,22 @@
 const pool = require("../config/postgres");
 
-async function createNotification(type,recipient,content){
-    const query = `INSERT INTO notifications(type,recipient,content)
-                    VALUES ($1,$2,$3)
+async function createNotification(type,recipient,content,idempotency_key){
+    const query = `INSERT INTO notifications(type,recipient,content,idempotency_key)
+                    VALUES ($1,$2,$3,$4)
                     RETURNING *`;
     
-    const values = [type,recipient,content];
+    const values = [type,recipient,content,idempotency_key];
     const result = await pool.query(query,values);
+    return result.rows[0];
+}
+
+async function findNotificationByIdempotencyKey(idempotency_key){
+    const query = `SELECT *
+                    FROM notifications
+                    where idempotency_key = $1`;
+    
+    const result = await pool.query(query,[idempotency_key]);
+
     return result.rows[0];
 }
 
@@ -65,5 +75,6 @@ async function recordAttempt(
 module.exports = {createNotification,
                     updateNotification,
                     updateRetryCount,
-                    recordAttempt   
+                    recordAttempt,
+                    findNotificationByIdempotencyKey
 };
