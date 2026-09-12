@@ -81,25 +81,72 @@ async function updateRetryCount(id,retrycount){
     return result.rows[0];
 }
 
-async function recordAttempt(
+// async function recordAttempt(
+//     notificationId,
+//     attemptNumber,
+//     status,
+//     errorMessage = null
+// ) {
+//     const query = `
+//         INSERT INTO notification_attempts
+//             (notification_id, attempt_number, status, error_message)
+//         VALUES
+//             ($1, $2, $3, $4)
+//         RETURNING *;
+//     `;
+
+//     const values = [
+//         notificationId,
+//         attemptNumber,
+//         status,
+//         errorMessage
+//     ];
+
+//     const result = await pool.query(query, values);
+
+//     return result.rows[0];
+// }
+
+async function claimAttempt(notificationId, attemptNumber){
+    const query = `
+        INSERT INTO notification_attempts
+            (notification_id, attempt_number, status)
+        VALUES
+            ($1, $2, 'PROCESSING')
+        ON CONFLICT (notification_id, attempt_number)
+        DO NOTHING
+        RETURNING *;
+    `;
+
+    const result = await pool.query(query, [
+        notificationId,
+        attemptNumber
+    ]);
+
+    return result.rows[0];
+}
+
+async function updateAttempt(
     notificationId,
     attemptNumber,
     status,
     errorMessage = null
-) {
+){
     const query = `
-        INSERT INTO notification_attempts
-            (notification_id, attempt_number, status, error_message)
-        VALUES
-            ($1, $2, $3, $4)
+        UPDATE notification_attempts
+        SET
+            status = $1,
+            error_message = $2
+        WHERE notification_id = $3
+          AND attempt_number = $4
         RETURNING *;
     `;
 
     const values = [
-        notificationId,
-        attemptNumber,
         status,
-        errorMessage
+        errorMessage,
+        notificationId,
+        attemptNumber
     ];
 
     const result = await pool.query(query, values);
@@ -129,11 +176,29 @@ async function markEventAsPublished(client,id){
     await client.query(query,[id]);
 }
 
+async function claimNotification(id){
+    const query = `
+        UPDATE notifications
+        SET
+            status = 'PROCESSING',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1
+          AND status = 'PENDING'
+        RETURNING *;
+    `;
+
+    const result = await pool.query(query,[id]);
+
+    return result.rows[0];
+}
+
 module.exports = {createNotificationWithOutbox,
                     updateNotification,
                     updateRetryCount,
-                    recordAttempt,
+                    claimAttempt,
+                    updateAttempt,
                     findNotificationByIdempotencyKey,
                     getUnpublishedEvents,
-                    markEventAsPublished
+                    markEventAsPublished,
+                    claimNotification
 };

@@ -18,12 +18,14 @@ CREATE TABLE notification_attempts (
     notification_id BIGINT NOT NULL,
     attempt_number INTEGER NOT NULL,
     status VARCHAR(10) NOT NULL
-        CHECK (status IN ('SUCCESS', 'FAILED')),
+        CHECK (status IN ('PROCESSING', 'SUCCESS', 'FAILED')),
     error_message TEXT,
     attempted_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_notification
         FOREIGN KEY (notification_id)
-        REFERENCES notifications(id)
+        REFERENCES notifications(id),
+    CONSTRAINT unique_notification_attempt
+        UNIQUE (notification_id, attempt_number)
 );
 
 CREATE TABLE api_clients(
