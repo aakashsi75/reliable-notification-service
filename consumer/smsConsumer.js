@@ -6,6 +6,8 @@ const {
     updateRetryCount
 } = require("../db/notificationRepository");
 
+const sendSms = require("../providers/smsProvider");
+
 async function main() {
     try {
         const { channel } = await connectRabbitMQ();
@@ -35,41 +37,56 @@ async function main() {
                     attemptNumber
                 );
 
-                if (!attempt) {
+                if (attempt.status === "SUCCESS") {
                     console.log(
-                        `Duplicate attempt ${attemptNumber} for notification ${sms.id}`
+                        `Attempt ${attemptNumber} already succeeded for notification ${sms.id}`
                     );
+
                     channel.ack(msg);
                     return;
                 }
 
+                if (attempt.status === "FAILED") {
+                    console.log(
+                        `Attempt ${attemptNumber} already failed for notification ${sms.id}`
+                    );
+
+                    channel.ack(msg);
+                    return;
+                }
+
+                console.log(
+                    `Processing attempt ${attemptNumber} for notification ${sms.id}`
+                );
+
                 console.log("SMS:", sms);
                 console.log("RETRY-COUNT:", retryCount);
-
-                const success = false;
-
-                if (success) {
+                try{
+                    await sendSms(sms);
                     await updateAttempt(
                         sms.id,
                         attemptNumber,
                         "SUCCESS"
                     );
-
+    
                     await updateNotification(
                         sms.id,
                         "SENT"
                     );
-
+    
                     channel.ack(msg);
                     return;
                 }
+                catch(error){
+                    console.error("SMS provider error",error);
+                    await updateAttempt(
+                        sms.id,
+                        attemptNumber,
+                        "FAILED",
+                        error.message
+                    );
+                }
 
-                await updateAttempt(
-                    sms.id,
-                    attemptNumber,
-                    "FAILED",
-                    "SMS provider failed"
-                );
 
                 if (retryCount >= 3) {
                     await updateNotification(

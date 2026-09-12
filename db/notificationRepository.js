@@ -114,14 +114,15 @@ async function claimAttempt(notificationId, attemptNumber){
         VALUES
             ($1, $2, 'PROCESSING')
         ON CONFLICT (notification_id, attempt_number)
-        DO NOTHING
+        DO UPDATE
+        SET status = notification_attempts.status
         RETURNING *;
     `;
 
-    const result = await pool.query(query, [
-        notificationId,
-        attemptNumber
-    ]);
+    const result = await pool.query(
+        query,
+        [notificationId, attemptNumber]
+    );
 
     return result.rows[0];
 }
