@@ -31,4 +31,18 @@ CREATE TABLE api_clients(
     name VARCHAR(100) NOT NULL,
     api_hash_key VARCHAR(64) NOT NULL UNIQUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-)
+);
+
+CREATE TABLE outbox_events(
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    notification_id BIGINT NOT NULL,
+    event_type VARCHAR(40) NOT NULL,
+    payload JSONB NOT NULL,
+    published BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    published_at TIMESTAMPTZ,
+
+    CONSTRAINT fk_outbox_notification 
+    FOREIGN KEY(notification_id)
+    REFERENCES notifications(id)
+);

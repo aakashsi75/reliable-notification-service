@@ -1,14 +1,49 @@
 const pool = require("../config/postgres");
 
-async function createNotification(type,recipient,content,idempotency_key){
-    const query = `INSERT INTO notifications(type,recipient,content,idempotency_key)
-                    VALUES ($1,$2,$3,$4)
-                    RETURNING *`;
-    
-    const values = [type,recipient,content,idempotency_key];
-    const result = await pool.query(query,values);
-    return result.rows[0];
+async function createNotificationWithOutbox(type,recipient,content,idempotency_key){
+    const client = await pool.connect();
+    try{
+        await client.query("BEGIN");
+        const insertNotification = `INSERT INTO notifications(type,recipient,content,idempotency_key)
+                        VALUES ($1,$2,$3,$4)
+                        ON CONFLICT(idempotency_key)
+                        DO NOTHING
+                        RETURNING *`;
+        const notificationValues = [type,recipient,content,idempotency_key];
+        const notificationResult = await client.query(insertNotification,notificationValues);
+        if(notificationResult.rows.length == 0) {
+            await client.query("ROLLBACK");
+            return findNotificationByIdempotencyKey(idempotency_key);
+        }
+        const notification = notificationResult.rows[0];
+        const insertOutbox = `INSERT INTO outbox_events(notification_id,payload,event_type)
+                                VALUES ($1,$2,$3)
+                                RETURNING *`;
+        const outboxValues = [notification.id,JSON.stringify(notification),"NOTIFICATION_CREATED"];
+        const outbox = await client.query(insertOutbox,outboxValues);
+        await client.query("COMMIT");
+        return notification;
+    }
+    catch(error){
+        await client.query("ROLLBACK");
+        throw error;
+    }
+    finally{
+        client.release();
+    }
 }
+
+// async function createNotification(type,recipient,content,idempotency_key){
+//     const query = `INSERT INTO notifications(type,recipient,content,idempotency_key)
+//                     VALUES ($1,$2,$3,$4)
+//                     ON CONFLICT(idempotency_key)
+//                     DO NOTHING
+//                     RETURNING *`;
+//     const values = [type,recipient,content,idempotency_key];
+//     const result = await pool.query(query,values);
+//     if(result.rows.length > 0) return result.rows[0];
+//     return findNotificationByIdempotencyKey(idempotency_key);
+// }
 
 async function findNotificationByIdempotencyKey(idempotency_key){
     const query = `SELECT *
@@ -72,9 +107,33 @@ async function recordAttempt(
     return result.rows[0];
 }
 
-module.exports = {createNotification,
+async function getUnpublishedEvents(client){
+    const query = `SELECT *
+                    FROM outbox_events
+                    where published = false
+                    ORDER BY id
+                    LIMIT 10
+                    FOR UPDATE SKIP LOCKED;`;
+
+    const result = await client.query(query);
+    return result.rows;
+}
+
+async function markEventAsPublished(client,id){
+    const query = `UPDATE outbox_events
+                    SET
+                        published = TRUE,
+                        published_at = CURRENT_TIMESTAMP
+                    where id = $1;`;
+    
+    await client.query(query,[id]);
+}
+
+module.exports = {createNotificationWithOutbox,
                     updateNotification,
                     updateRetryCount,
                     recordAttempt,
-                    findNotificationByIdempotencyKey
+                    findNotificationByIdempotencyKey,
+                    getUnpublishedEvents,
+                    markEventAsPublished
 };

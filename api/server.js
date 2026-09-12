@@ -1,5 +1,5 @@
 const express = require("express");
-const {createNotification} = require("../db/notificationRepository");
+const {createNotification,findNotificationByIdempotencyKey, createNotificationWithOutbox} = require("../db/notificationRepository");
 const {initializePublisher, publishNotification} = require("../producer/producer");
 const apiKeyAuth = require("../middleware/apiKeyAuth");
 const rateLimiter = require("../middleware/rateLimiter");
@@ -10,15 +10,14 @@ app.use(express.json());
 app.post("/notifications",apiKeyAuth,rateLimiter,async(req,res)=>{
     try{
         const {type,recipient,content} = req.body;
-        const idempotency_key = req.headers["idempotency_key"];
+        const idempotency_key = req.headers["idempotency-key"];
         if(!idempotency_key){
-            res.status(400).json({
+            return res.status(400).json({
                 error: "Idempotency Key Header Required"
             })
         }
         console.log(type,recipient,content);
-        const notification = await createNotification(type,recipient,content,idempotency_key);
-        await publishNotification(notification);
+        const notification = await createNotificationWithOutbox(type,recipient,content,idempotency_key);
         res.status(201).json(notification);
     }
     catch(error){
