@@ -7,6 +7,8 @@ const {
     claimAttempt
 } = require("../db/notificationRepository");
 
+const sendEmail = require("../providers/emailProvider");
+
 async function main() {
     try {
         const { channel } = await connectRabbitMQ();
@@ -33,17 +35,32 @@ async function main() {
                     email.id,
                     attemptNumber
                 );
-                if (!attempt) {
+
+                if (attempt.status === "SUCCESS") {
                     console.log(
-                        `Duplicate attempt ${attemptNumber} for notification ${email.id}`
+                        `Attempt ${attemptNumber} already succeeded for notification ${email.id}`
                     );
+
                     channel.ack(msg);
                     return;
                 }
+
+                if (attempt.status === "FAILED") {
+                    console.log(
+                        `Attempt ${attemptNumber} already failed for notification ${email.id}`
+                    );
+
+                    channel.ack(msg);
+                    return;
+                }
+
+                console.log(
+                    `Processing attempt ${attemptNumber} for notification ${email.id}`
+                );
                 console.log("EMAIL:", email);
                 console.log("RETRY-COUNT:", retryCount);
-                const success = false;
-                if (success) {
+                try{
+                    await sendEmail(email)
                     await updateAttempt(
                         email.id,
                         attemptNumber,
@@ -56,13 +73,15 @@ async function main() {
                     channel.ack(msg);
                     return;
                 }
-
-                await updateAttempt(
-                    email.id,
-                    attemptNumber,
-                    "FAILED",
-                    "Email provider failed"
-                );
+                catch(error){
+                    console.error("Email provider error: ",error);
+                    await updateAttempt(
+                        email.id,
+                        attemptNumber,
+                        "FAILED",
+                        error.message
+                    );
+                }
 
                 if (retryCount >= 3) {
                     await updateNotification(
@@ -93,12 +112,12 @@ async function main() {
 
                 channel.ack(msg);
 
-            } 
+            }
             catch (error) {
                 console.error("Email Worker Error:", error);
                 channel.reject(msg, false);
             }
-        },{
+        }, {
             noAck: false
         });
     } catch (error) {
