@@ -38,6 +38,7 @@ CREATE TABLE api_clients(
 CREATE TABLE outbox_events(
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     notification_id BIGINT NOT NULL,
+    attempt_number INTEGER
     event_type VARCHAR(40) NOT NULL,
     payload JSONB NOT NULL,
     published BOOLEAN NOT NULL DEFAULT false,
@@ -48,3 +49,11 @@ CREATE TABLE outbox_events(
     FOREIGN KEY(notification_id)
     REFERENCES notifications(id)
 );
+
+CREATE UNIQUE INDEX unique_retry_event
+ON outbox_events(
+    notification_id,
+    attempt_number,
+    event_type
+)
+WHERE event_type IN ('SMS_RETRY', 'EMAIL_RETRY');

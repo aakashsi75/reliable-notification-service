@@ -193,6 +193,81 @@ async function claimNotification(id){
     return result.rows[0];
 }
 
+async function recordFailureAndCreateRetry(
+    notificationId,
+    attemptNumber,
+    errorMessage,
+    retryCount,
+    type
+) {
+    const client = await pool.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        await client.query(
+            `
+            UPDATE notification_attempts
+            SET
+                status = 'FAILED',
+                error_message = $1
+            WHERE notification_id = $2
+              AND attempt_number = $3
+            `,
+            [
+                errorMessage,
+                notificationId,
+                attemptNumber
+            ]
+        );
+
+        const result = await client.query(
+            `
+            SELECT *
+            FROM notifications
+            WHERE id = $1
+            `,
+            [notificationId]
+        );
+
+        const notification = result.rows[0];
+
+        await client.query(
+            `
+            INSERT INTO outbox_events(
+                notification_id,
+                event_type,
+                payload
+            )
+            VALUES ($1, $2, $3)
+            ON CONFLICT(
+                notification_id,
+                attempt_number,
+                event_type)
+            DO NOTHING
+            `,
+            [
+                notificationId,
+                attempNumber
+                `${type}_RETRY`,
+                JSON.stringify({
+                    ...notification,
+                    retryCount: retryCount + 1
+                })
+            ]
+        );
+
+        await client.query("COMMIT");
+    }
+    catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    }
+    finally {
+        client.release();
+    }
+}
+
 module.exports = {createNotificationWithOutbox,
                     updateNotification,
                     updateRetryCount,
@@ -201,5 +276,6 @@ module.exports = {createNotificationWithOutbox,
                     findNotificationByIdempotencyKey,
                     getUnpublishedEvents,
                     markEventAsPublished,
-                    claimNotification
+                    claimNotification,
+                    recordFailureAndCreateRetry
 };

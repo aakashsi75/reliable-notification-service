@@ -3,7 +3,8 @@ const {
     claimAttempt,
     updateAttempt,
     updateNotification,
-    updateRetryCount
+    updateRetryCount,
+    recordFailureAndCreateRetry
 } = require("../db/notificationRepository");
 
 const sendSms = require("../providers/smsProvider");
@@ -61,61 +62,54 @@ async function main() {
 
                 console.log("SMS:", sms);
                 console.log("RETRY-COUNT:", retryCount);
-                try{
+                try {
                     await sendSms(sms);
                     await updateAttempt(
                         sms.id,
                         attemptNumber,
                         "SUCCESS"
                     );
-    
+
                     await updateNotification(
                         sms.id,
                         "SENT"
                     );
-    
+
                     channel.ack(msg);
                     return;
                 }
-                catch(error){
-                    console.error("SMS provider error",error);
-                    await updateAttempt(
+                catch (error) {
+                    console.error("SMS provider error:", error);
+
+                    if (retryCount >= 3) {
+                        await updateAttempt(
+                            sms.id,
+                            attemptNumber,
+                            "FAILED",
+                            error.message
+                        );
+
+                        await updateNotification(
+                            sms.id,
+                            "FAILED",
+                            error.message
+                        );
+
+                        channel.reject(msg, false);
+                        return;
+                    }
+
+                    await recordFailureAndCreateRetry(
                         sms.id,
                         attemptNumber,
-                        "FAILED",
-                        error.message
-                    );
-                }
-
-
-                if (retryCount >= 3) {
-                    await updateNotification(
-                        sms.id,
-                        "FAILED",
-                        "SMS provider failed"
+                        error.message,
+                        retryCount,
+                        "SMS"
                     );
 
-                    channel.reject(msg, false);
+                    channel.ack(msg);
                     return;
                 }
-
-                await updateRetryCount(
-                    sms.id,
-                    retryCount + 1
-                );
-
-                channel.sendToQueue(
-                    "sms.retry.queue",
-                    msg.content,
-                    {
-                        persistent: true,
-                        headers: {
-                            "x-retry-count": retryCount + 1
-                        }
-                    }
-                );
-
-                channel.ack(msg);
 
             } catch (error) {
                 console.error("SMS Worker Error:", error);

@@ -1,5 +1,5 @@
 const {getUnpublishedEvents,markEventAsPublished} = require("../db/notificationRepository");
-const {initializePublisher,publishNotification} = require("../producer/producer");
+const {initializePublisher,publishNotification,publishOutboxEvent} = require("../producer/producer");
 const pool = require("../config/postgres");
 
 async function processOutbox(){

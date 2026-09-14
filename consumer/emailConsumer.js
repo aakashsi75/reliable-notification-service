@@ -4,7 +4,8 @@ const {
     updateNotification,
     updateAttempt,
     updateRetryCount,
-    claimAttempt
+    claimAttempt,
+    recordFailureAndCreateRetry
 } = require("../db/notificationRepository");
 
 const sendEmail = require("../providers/emailProvider");
@@ -59,7 +60,7 @@ async function main() {
                 );
                 console.log("EMAIL:", email);
                 console.log("RETRY-COUNT:", retryCount);
-                try{
+                try {
                     await sendEmail(email)
                     await updateAttempt(
                         email.id,
@@ -73,44 +74,38 @@ async function main() {
                     channel.ack(msg);
                     return;
                 }
-                catch(error){
-                    console.error("Email provider error: ",error);
-                    await updateAttempt(
+                catch (error) {
+                    console.error("Email provider error:", error);
+
+                    if (retryCount >= 3) {
+                        await updateAttempt(
+                            email.id,
+                            attemptNumber,
+                            "FAILED",
+                            error.message
+                        );
+
+                        await updateNotification(
+                            email.id,
+                            "FAILED",
+                            error.message
+                        );
+
+                        channel.reject(msg, false);
+                        return;
+                    }
+
+                    await recordFailureAndCreateRetry(
                         email.id,
                         attemptNumber,
-                        "FAILED",
-                        error.message
-                    );
-                }
-
-                if (retryCount >= 3) {
-                    await updateNotification(
-                        email.id,
-                        "FAILED",
-                        "Email provider failed"
+                        error.message,
+                        retryCount,
+                        "EMAIL"
                     );
 
-                    channel.reject(msg, false);
+                    channel.ack(msg);
                     return;
                 }
-
-                await updateRetryCount(
-                    email.id,
-                    retryCount + 1
-                );
-
-                channel.sendToQueue(
-                    "email.retry.queue",
-                    msg.content,
-                    {
-                        persistent: true,
-                        headers: {
-                            "x-retry-count": retryCount + 1
-                        }
-                    }
-                );
-
-                channel.ack(msg);
 
             }
             catch (error) {
