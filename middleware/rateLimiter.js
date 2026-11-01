@@ -34,7 +34,7 @@ async function rateLimiter(req,res,next){
             keys: [key],
             arguments: [
                 now.toString(),
-                "10",
+                "100000",
                 requestId
             ]
         });

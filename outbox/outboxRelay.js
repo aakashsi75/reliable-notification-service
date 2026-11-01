@@ -8,8 +8,7 @@ async function processOutbox(){
         await client.query("BEGIN");
         const events = await getUnpublishedEvents(client);
         for(const event of events){
-            const notification = event.payload;
-            await publishNotification(notification);
+            await publishOutboxEvent(event);
             await markEventAsPublished(client,event.id);
             console.log(`Outbox event ${event.id} published successfully`);
         }

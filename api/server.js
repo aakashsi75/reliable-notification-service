@@ -17,7 +17,7 @@ app.post("/notifications",apiKeyAuth,rateLimiter,async(req,res)=>{
             })
         }
         console.log(type,recipient,content);
-        const notification = await createNotificationWithOutbox(type,recipient,content,idempotency_key);
+        const notification = await createNotificationWithOutbox(req.clientId, type,recipient,content,idempotency_key);
         res.status(201).json(notification);
     }
     catch(error){

@@ -1,34 +1,35 @@
 const pool = require("../config/postgres");
+const { v4: uuidv4 } = require("uuid");
 
-async function createNotificationWithOutbox(type,recipient,content,idempotency_key){
+async function createNotificationWithOutbox(clientId, type, recipient, content, idempotency_key) {
     const client = await pool.connect();
-    try{
+    try {
         await client.query("BEGIN");
-        const insertNotification = `INSERT INTO notifications(type,recipient,content,idempotency_key)
-                        VALUES ($1,$2,$3,$4)
-                        ON CONFLICT(idempotency_key)
+        const insertNotification = `INSERT INTO notifications(client_id, type,recipient,content,idempotency_key)
+                        VALUES ($1,$2,$3,$4,$5)
+                        ON CONFLICT(client_id, idempotency_key)
                         DO NOTHING
                         RETURNING *`;
-        const notificationValues = [type,recipient,content,idempotency_key];
-        const notificationResult = await client.query(insertNotification,notificationValues);
-        if(notificationResult.rows.length == 0) {
+        const notificationValues = [clientId, type, recipient, content, idempotency_key];
+        const notificationResult = await client.query(insertNotification, notificationValues);
+        if (notificationResult.rows.length == 0) {
             await client.query("ROLLBACK");
-            return findNotificationByIdempotencyKey(idempotency_key);
+            return findNotificationByIdempotencyKey(clientId, idempotency_key);
         }
         const notification = notificationResult.rows[0];
         const insertOutbox = `INSERT INTO outbox_events(notification_id,payload,event_type)
                                 VALUES ($1,$2,$3)
                                 RETURNING *`;
-        const outboxValues = [notification.id,JSON.stringify(notification),"NOTIFICATION_CREATED"];
-        const outbox = await client.query(insertOutbox,outboxValues);
+        const outboxValues = [notification.id, JSON.stringify(notification), "NOTIFICATION_CREATED"];
+        const outbox = await client.query(insertOutbox, outboxValues);
         await client.query("COMMIT");
         return notification;
     }
-    catch(error){
+    catch (error) {
         await client.query("ROLLBACK");
         throw error;
     }
-    finally{
+    finally {
         client.release();
     }
 }
@@ -45,17 +46,18 @@ async function createNotificationWithOutbox(type,recipient,content,idempotency_k
 //     return findNotificationByIdempotencyKey(idempotency_key);
 // }
 
-async function findNotificationByIdempotencyKey(idempotency_key){
+async function findNotificationByIdempotencyKey(clientId, idempotency_key) {
     const query = `SELECT *
                     FROM notifications
-                    where idempotency_key = $1`;
-    
-    const result = await pool.query(query,[idempotency_key]);
+                    where client_id = $1
+                    AND idempotency_key = $2`;
+
+    const result = await pool.query(query, [clientId, idempotency_key]);
 
     return result.rows[0];
 }
 
-async function updateNotification(id,status,errorMessage = null){
+async function updateNotification(id, status, errorMessage = null) {
     const query = `UPDATE notifications
                     SET
                         status = $1,
@@ -64,20 +66,20 @@ async function updateNotification(id,status,errorMessage = null){
                     WHERE id = $3
                     RETURNING *;`
 
-    const values = [status,errorMessage,id];
-    const result = await pool.query(query,values);
+    const values = [status, errorMessage, id];
+    const result = await pool.query(query, values);
     return result.rows[0];
 }
 
-async function updateRetryCount(id,retrycount){
+async function updateRetryCount(id, retrycount) {
     const query = `UPDATE notifications
                     SET
                         retry_count = $1
                     WHERE id = $2
                     RETURNING *;`
-    
-    const values = [retrycount,id];
-    const result = await pool.query(query,values);
+
+    const values = [retrycount, id];
+    const result = await pool.query(query, values);
     return result.rows[0];
 }
 
@@ -107,24 +109,58 @@ async function updateRetryCount(id,retrycount){
 //     return result.rows[0];
 // }
 
-async function claimAttempt(notificationId, attemptNumber){
+
+
+async function claimAttempt(notificationId, attemptNumber) {
+    const leaseToken = uuidv4();
+
     const query = `
-        INSERT INTO notification_attempts
-            (notification_id, attempt_number, status)
-        VALUES
-            ($1, $2, 'PROCESSING')
-        ON CONFLICT (notification_id, attempt_number)
+        INSERT INTO notification_attempts(
+            notification_id,
+            attempt_number,
+            status,
+            lease_token
+        )
+        VALUES($1, $2, 'PROCESSING', $3)
+
+        ON CONFLICT(notification_id, attempt_number)
         DO UPDATE
-        SET status = notification_attempts.status
+        SET
+            lease_token = EXCLUDED.lease_token,
+            attempted_at = CURRENT_TIMESTAMP
+        WHERE
+            notification_attempts.status = 'PROCESSING'
+            AND notification_attempts.attempted_at
+                < CURRENT_TIMESTAMP - INTERVAL '1 minute'
+
         RETURNING *;
     `;
 
-    const result = await pool.query(
-        query,
+    const result = await pool.query(query, [
+        notificationId,
+        attemptNumber,
+        leaseToken
+    ]);
+
+    if (result.rows.length > 0) {
+        return {
+            attempt: result.rows[0],
+            leaseToken
+        };
+    }
+
+    const existing = await pool.query(
+        `SELECT *
+         FROM notification_attempts
+         WHERE notification_id = $1
+           AND attempt_number = $2`,
         [notificationId, attemptNumber]
     );
 
-    return result.rows[0];
+    return {
+        attempt: existing.rows[0],
+        leaseToken
+    };
 }
 
 async function updateAttempt(
@@ -132,7 +168,7 @@ async function updateAttempt(
     attemptNumber,
     status,
     errorMessage = null
-){
+) {
     const query = `
         UPDATE notification_attempts
         SET
@@ -155,7 +191,7 @@ async function updateAttempt(
     return result.rows[0];
 }
 
-async function getUnpublishedEvents(client){
+async function getUnpublishedEvents(client) {
     const query = `SELECT *
                     FROM outbox_events
                     where published = false
@@ -167,17 +203,17 @@ async function getUnpublishedEvents(client){
     return result.rows;
 }
 
-async function markEventAsPublished(client,id){
+async function markEventAsPublished(client, id) {
     const query = `UPDATE outbox_events
                     SET
                         published = TRUE,
                         published_at = CURRENT_TIMESTAMP
                     where id = $1;`;
-    
-    await client.query(query,[id]);
+
+    await client.query(query, [id]);
 }
 
-async function claimNotification(id){
+async function claimNotification(id) {
     const query = `
         UPDATE notifications
         SET
@@ -188,7 +224,7 @@ async function claimNotification(id){
         RETURNING *;
     `;
 
-    const result = await pool.query(query,[id]);
+    const result = await pool.query(query, [id]);
 
     return result.rows[0];
 }
@@ -234,21 +270,32 @@ async function recordFailureAndCreateRetry(
 
         await client.query(
             `
+    UPDATE notifications
+    SET
+        retry_count = $1,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $2
+    `,
+            [
+                retryCount + 1,
+                notificationId
+            ]
+        );
+        await client.query(
+            `
             INSERT INTO outbox_events(
                 notification_id,
+                attempt_number,
                 event_type,
                 payload
             )
-            VALUES ($1, $2, $3)
-            ON CONFLICT(
-                notification_id,
-                attempt_number,
-                event_type)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT
             DO NOTHING
             `,
             [
                 notificationId,
-                attempNumber
+                attemptNumber,
                 `${type}_RETRY`,
                 JSON.stringify({
                     ...notification,
@@ -268,14 +315,15 @@ async function recordFailureAndCreateRetry(
     }
 }
 
-module.exports = {createNotificationWithOutbox,
-                    updateNotification,
-                    updateRetryCount,
-                    claimAttempt,
-                    updateAttempt,
-                    findNotificationByIdempotencyKey,
-                    getUnpublishedEvents,
-                    markEventAsPublished,
-                    claimNotification,
-                    recordFailureAndCreateRetry
+module.exports = {
+    createNotificationWithOutbox,
+    updateNotification,
+    updateRetryCount,
+    claimAttempt,
+    updateAttempt,
+    findNotificationByIdempotencyKey,
+    getUnpublishedEvents,
+    markEventAsPublished,
+    claimNotification,
+    recordFailureAndCreateRetry
 };

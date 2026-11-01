@@ -1,6 +1,14 @@
+CREATE TABLE api_clients(
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    api_hash_key VARCHAR(64) NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE notifications(
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    idempotency_key TEXT NOT NULL UNIQUE,
+    client_id BIGINT NOT NULL REFERENCES api_clients(id),
+    idempotency_key TEXT NOT NULL,
     type VARCHAR(10) NOT NULL
         CHECK(type in ('SMS','EMAIL')),
     recipient VARCHAR(255) NOT NULL,
@@ -10,7 +18,8 @@ CREATE TABLE notifications(
     retry_count INTEGER NOT NULL DEFAULT 0,
     error_message TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (client_id, idempotency_key)
 );
 
 CREATE TABLE notification_attempts (
@@ -21,6 +30,7 @@ CREATE TABLE notification_attempts (
         CHECK (status IN ('PROCESSING', 'SUCCESS', 'FAILED')),
     error_message TEXT,
     attempted_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    lease_token UUID,
     CONSTRAINT fk_notification
         FOREIGN KEY (notification_id)
         REFERENCES notifications(id),
@@ -28,17 +38,10 @@ CREATE TABLE notification_attempts (
         UNIQUE (notification_id, attempt_number)
 );
 
-CREATE TABLE api_clients(
-    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    api_hash_key VARCHAR(64) NOT NULL UNIQUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE outbox_events(
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     notification_id BIGINT NOT NULL,
-    attempt_number INTEGER
+    attempt_number INTEGER,
     event_type VARCHAR(40) NOT NULL,
     payload JSONB NOT NULL,
     published BOOLEAN NOT NULL DEFAULT false,

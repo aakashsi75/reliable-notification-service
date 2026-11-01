@@ -31,3 +31,12 @@ async function sendEmail(notification){
 }
 
 module.exports = sendEmail;
+
+// async function sendEmail(notification) {
+//     return {
+//         success: true,
+//         benchmark: true
+//     };
+// }
+
+module.exports = sendEmail;

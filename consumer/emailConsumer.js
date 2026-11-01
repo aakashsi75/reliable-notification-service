@@ -32,7 +32,7 @@ async function main() {
                 const email = JSON.parse(msg.content.toString());
                 const retryCount = msg.properties.headers?.["x-retry-count"] || 0;
                 const attemptNumber = retryCount + 1;
-                const attempt = await claimAttempt(
+                const {attempt,leaseToken} = await claimAttempt(
                     email.id,
                     attemptNumber
                 );
@@ -49,6 +49,14 @@ async function main() {
                 if (attempt.status === "FAILED") {
                     console.log(
                         `Attempt ${attemptNumber} already failed for notification ${email.id}`
+                    );
+
+                    channel.ack(msg);
+                    return;
+                }
+                if (attempt.lease_token !== leaseToken) {
+                    console.log(
+                        `Attempt ${attemptNumber} is already being processed by another worker`
                     );
 
                     channel.ack(msg);
